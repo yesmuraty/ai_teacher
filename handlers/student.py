@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from database.db import (
     get_student_by_tg, add_student, get_all_teachers,
-    get_task_by_id, add_submission, get_student_submissions
+    get_tasks_for_student, get_task_by_id, add_submission, get_student_submissions
 )
 from keyboards.kb import (
     teachers_keyboard, topics_keyboard, skills_keyboard,
@@ -96,30 +96,7 @@ async def skill_chosen(callback: CallbackQuery):
     import aiosqlite
     topic_filter = TOPICS[topic_idx] if 0 <= topic_idx < len(TOPICS) else None
 
-    async with aiosqlite.connect("bot.db") as db:
-        if topic_filter:
-            # Тақырып бойынша тапсырмаларды сүз
-            async with db.execute(
-                "SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=? AND title LIKE ? ORDER BY teacher_id DESC, created_at DESC",
-                (teacher_id, skill, f"%{topic_filter.split()[0]}%")
-            ) as cur:
-                tasks = await cur.fetchall()
-            # Егер нәтиже болмаса, тақырып сөзінен кеңірек іздеу
-            if not tasks:
-                # тақырыптың алғашқы сөзімен емес, description немесе title-да тақырып атауымен іздеу
-                async with db.execute(
-                    """SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=?
-                       AND (title LIKE ? OR description LIKE ?)
-                       ORDER BY teacher_id DESC, created_at DESC""",
-                    (teacher_id, skill, f"%{topic_filter[:15]}%", f"%{topic_filter[:15]}%")
-                ) as cur:
-                    tasks = await cur.fetchall()
-        else:
-            async with db.execute(
-                "SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=? ORDER BY teacher_id DESC, created_at DESC",
-                (teacher_id, skill)
-            ) as cur:
-                tasks = await cur.fetchall()
+    tasks = await get_tasks_for_student(teacher_id, skill, topic_filter)
 
     skill_label = SKILLS.get(skill, skill)
     topic_name = TOPICS[topic_idx] if 0 <= topic_idx < len(TOPICS) else ""
