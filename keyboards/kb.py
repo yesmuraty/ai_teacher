@@ -78,8 +78,9 @@ def submit_task_keyboard(task_id: int):
 def teacher_main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="➕ Тапсырма қосу")],
+            [KeyboardButton(text="➕ Менің тапсырмам"), KeyboardButton(text="🌐 Жалпы тапсырма қосу")],
             [KeyboardButton(text="📋 Менің тапсырмаларым")],
+            [KeyboardButton(text="🌐 Жалпы тапсырмалар")],
             [KeyboardButton(text="📥 Тапсырылған жұмыстар")],
             [KeyboardButton(text="👥 Менің оқушыларым")],
         ],
