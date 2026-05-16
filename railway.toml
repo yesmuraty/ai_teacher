@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python main.py"
+startCommand = "python seed_tasks.py"
 restartPolicyType = "always"
