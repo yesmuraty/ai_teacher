@@ -67,7 +67,7 @@ async def main():
         for i, task in enumerate(TASKS, 1):
             await db.execute(
                 "INSERT INTO tasks (teacher_id, skill, title, description, file_id, file_type) VALUES (?, ?, ?, ?, ?, ?)",
-                (teacher_id, task["skill"], task["title"], task["description"], None, "text")
+                (0, task["skill"], task["title"], task["description"], None, "text")  # 0 = ортақ
             )
             print(f"[{i}/{len(TASKS)}] ✅ {task['title']}")
         await db.commit()
