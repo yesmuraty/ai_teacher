@@ -121,7 +121,7 @@ async def add_task_done(message: Message, state: FSMContext):
         file_type = "text"
 
     await add_task(
-        teacher_id=data["teacher_id"],
+        teacher_id=0,  # ортақ тапсырма
         skill=data["skill"],
         title=data["title"],
         description=description,
