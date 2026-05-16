@@ -109,7 +109,7 @@ async def add_task(teacher_id: int, skill: str, title: str, description: str, fi
 async def get_tasks_by_teacher_skill(teacher_id: int, skill: str):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT * FROM tasks WHERE teacher_id = ? AND skill = ? ORDER BY created_at DESC",
+            "SELECT * FROM tasks WHERE (teacher_id = ? OR teacher_id = 0) AND skill = ? ORDER BY teacher_id DESC, created_at DESC",
             (teacher_id, skill)
         ) as cur:
             return await cur.fetchall()
