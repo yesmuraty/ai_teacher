@@ -1,6 +1,7 @@
 import aiosqlite
+import os
 
-DB_PATH = "bot.db"
+DB_PATH = os.environ.get("DB_PATH", "bot.db")
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -26,15 +27,21 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY,
                 teacher_id INTEGER,
-                skill TEXT,  -- tyndалым, aytylyм, jazylyм, okylyм
+                skill TEXT,
                 title TEXT,
                 description TEXT,
                 file_id TEXT,
-                file_type TEXT,  -- photo, document, audio, voice, text
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+                file_type TEXT,
+                is_shared INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # is_shared баған жоқ болса қосу (ескі база үшін)
+        try:
+            await db.execute("ALTER TABLE tasks ADD COLUMN is_shared INTEGER DEFAULT 0")
+            await db.commit()
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS submissions (
                 id INTEGER PRIMARY KEY,
@@ -42,7 +49,7 @@ async def init_db():
                 task_id INTEGER,
                 content TEXT,
                 file_id TEXT,
-                file_type TEXT,  -- photo, text, voice
+                file_type TEXT,
                 submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 grade TEXT,
                 feedback TEXT,
@@ -97,29 +104,45 @@ async def get_students_by_teacher(teacher_id: int):
 
 # ===== TASKS =====
 
-async def add_task(teacher_id: int, skill: str, title: str, description: str, file_id: str, file_type: str):
+async def add_task(teacher_id: int, skill: str, title: str, description: str,
+                   file_id: str, file_type: str, is_shared: int = 0):
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO tasks (teacher_id, skill, title, description, file_id, file_type) VALUES (?, ?, ?, ?, ?, ?)",
-            (teacher_id, skill, title, description, file_id, file_type)
+            "INSERT INTO tasks (teacher_id, skill, title, description, file_id, file_type, is_shared) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (teacher_id, skill, title, description, file_id, file_type, is_shared)
         )
         await db.commit()
         return cur.lastrowid
 
-async def get_tasks_by_teacher_skill(teacher_id: int, skill: str):
+async def get_tasks_for_student(teacher_id: int, skill: str, topic_keyword: str = None):
+    """Оқушыға: мұғалімнің жеке тапсырмалары + барлық ортақ тапсырмалар"""
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT * FROM tasks WHERE (teacher_id = ? OR teacher_id = 0) AND skill = ? ORDER BY teacher_id DESC, created_at DESC",
-            (teacher_id, skill)
-        ) as cur:
-            return await cur.fetchall()
+        if topic_keyword:
+            async with db.execute(
+                """SELECT * FROM tasks
+                   WHERE (teacher_id = ? OR is_shared = 1)
+                   AND skill = ? AND title LIKE ?
+                   ORDER BY is_shared ASC, created_at DESC""",
+                (teacher_id, skill, f"%{topic_keyword}%")
+            ) as cur:
+                return await cur.fetchall()
+        else:
+            async with db.execute(
+                """SELECT * FROM tasks
+                   WHERE (teacher_id = ? OR is_shared = 1)
+                   AND skill = ?
+                   ORDER BY is_shared ASC, created_at DESC""",
+                (teacher_id, skill)
+            ) as cur:
+                return await cur.fetchall()
 
 async def get_task_by_id(task_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cur:
             return await cur.fetchone()
 
-async def get_all_tasks_by_teacher(teacher_id: int):
+async def get_my_tasks(teacher_id: int):
+    """Мұғалімнің өз тапсырмалары"""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT * FROM tasks WHERE teacher_id = ? ORDER BY skill, created_at DESC",
@@ -127,9 +150,21 @@ async def get_all_tasks_by_teacher(teacher_id: int):
         ) as cur:
             return await cur.fetchall()
 
-async def delete_task(task_id: int, teacher_id: int):
+async def get_shared_tasks():
+    """Барлық ортақ тапсырмалар"""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM tasks WHERE id = ? AND teacher_id = ?", (task_id, teacher_id))
+        async with db.execute(
+            "SELECT * FROM tasks WHERE is_shared = 1 ORDER BY skill, created_at DESC"
+        ) as cur:
+            return await cur.fetchall()
+
+async def delete_task(task_id: int, teacher_id: int):
+    """Мұғалім өз тапсырмасын жоя алады. is_shared тапсырмаларды кез-келген мұғалім жоя алады."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM tasks WHERE id = ? AND (teacher_id = ? OR is_shared = 1)",
+            (task_id, teacher_id)
+        )
         await db.commit()
 
 # ===== SUBMISSIONS =====
@@ -144,13 +179,15 @@ async def add_submission(student_id: int, task_id: int, content: str, file_id: s
         return cur.lastrowid
 
 async def get_pending_submissions(teacher_id: int):
+    """Мұғалімнің оқушыларының тапсырылған жұмыстары (тапсырма кімдікі болса да)"""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("""
-            SELECT s.id, st.full_name, st.tg_id, t.title, t.skill, s.content, s.file_id, s.file_type, s.submitted_at
+            SELECT s.id, st.full_name, st.tg_id, t.title, t.skill,
+                   s.content, s.file_id, s.file_type, s.submitted_at
             FROM submissions s
             JOIN students st ON s.student_id = st.id
             JOIN tasks t ON s.task_id = t.id
-            WHERE t.teacher_id = ? AND s.grade IS NULL
+            WHERE st.teacher_id = ? AND s.grade IS NULL
             ORDER BY s.submitted_at ASC
         """, (teacher_id,)) as cur:
             return await cur.fetchall()
