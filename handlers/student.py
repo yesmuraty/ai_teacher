@@ -100,7 +100,7 @@ async def skill_chosen(callback: CallbackQuery):
         if topic_filter:
             # Тақырып бойынша тапсырмаларды сүз
             async with db.execute(
-                "SELECT * FROM tasks WHERE teacher_id=? AND skill=? AND title LIKE ? ORDER BY created_at DESC",
+                "SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=? AND title LIKE ? ORDER BY teacher_id DESC, created_at DESC",
                 (teacher_id, skill, f"%{topic_filter.split()[0]}%")
             ) as cur:
                 tasks = await cur.fetchall()
@@ -108,15 +108,15 @@ async def skill_chosen(callback: CallbackQuery):
             if not tasks:
                 # тақырыптың алғашқы сөзімен емес, description немесе title-да тақырып атауымен іздеу
                 async with db.execute(
-                    """SELECT * FROM tasks WHERE teacher_id=? AND skill=?
+                    """SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=?
                        AND (title LIKE ? OR description LIKE ?)
-                       ORDER BY created_at DESC""",
+                       ORDER BY teacher_id DESC, created_at DESC""",
                     (teacher_id, skill, f"%{topic_filter[:15]}%", f"%{topic_filter[:15]}%")
                 ) as cur:
                     tasks = await cur.fetchall()
         else:
             async with db.execute(
-                "SELECT * FROM tasks WHERE teacher_id=? AND skill=? ORDER BY created_at DESC",
+                "SELECT * FROM tasks WHERE (teacher_id=? OR teacher_id=0) AND skill=? ORDER BY teacher_id DESC, created_at DESC",
                 (teacher_id, skill)
             ) as cur:
                 tasks = await cur.fetchall()
