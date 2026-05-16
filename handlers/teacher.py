@@ -25,7 +25,7 @@ class TeacherReg(StatesGroup):
 class AddTask(StatesGroup):
     choosing_skill = State()
     waiting_title = State()
-    waiting_content = State()
+    waiting_content = State()  # файлдар жиналады, /done күтіледі
 
 class GradeTask(StatesGroup):
     waiting_grade = State()
@@ -40,10 +40,7 @@ async def teacher_register_start(message: Message, state: FSMContext):
         await message.answer("✅ Сіз бұрыннан тіркелгенсіз.", reply_markup=teacher_main_keyboard())
         return
     await state.set_state(TeacherReg.waiting_code)
-    await message.answer(
-        "🔐 Мұғалім кодын енгізіңіз:",
-        reply_markup=cancel_keyboard()
-    )
+    await message.answer("🔐 Мұғалім кодын енгізіңіз:", reply_markup=cancel_keyboard())
 
 @router.message(TeacherReg.waiting_code)
 async def teacher_check_code(message: Message, state: FSMContext):
@@ -76,7 +73,7 @@ async def add_task_start(message: Message, state: FSMContext):
     if not teacher:
         await message.answer("❌ Сіз мұғалім ретінде тіркелмегенсіз.")
         return
-    await state.update_data(teacher_id=teacher[0])
+    await state.update_data(teacher_id=teacher[0], collected_files=[])
     await state.set_state(AddTask.choosing_skill)
     await message.answer("📚 Дағдыны таңдаңыз:", reply_markup=teacher_skills_keyboard())
 
@@ -92,62 +89,99 @@ async def add_task_skill_chosen(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddTask.waiting_title)
 async def add_task_title(message: Message, state: FSMContext):
-    await state.update_data(title=message.text)
+    await state.update_data(title=message.text, collected_files=[])
     await state.set_state(AddTask.waiting_content)
     await message.answer(
-        "📋 Енді тапсырманың мазмұнын жіберіңіз:\n\n"
-        "Мәтін, фото, файл, дауыс хабарлама немесе сілтеме болуы мүмкін.\n\n"
-        "Аяқтау үшін: /done"
+        "📋 Тапсырма мазмұнын жіберіңіз.\n\n"
+        "📌 Бірнеше файл жіберуге болады (фото, аудио, мәтін).\n"
+        "✅ Аяқтау үшін: /done"
     )
 
-@router.message(AddTask.waiting_content)
-async def add_task_content(message: Message, state: FSMContext):
+@router.message(F.text == "/done", AddTask.waiting_content)
+async def add_task_done(message: Message, state: FSMContext):
     data = await state.get_data()
-    file_id = None
-    file_type = "text"
-    content = ""
+    files = data.get("collected_files", [])
+    description = data.get("description", "")
 
-    if message.text and message.text != "/done":
-        content = message.text
+    if not files and not description:
+        await message.answer("⚠️ Ештеңе жіберілмеді. Алдымен мазмұн жіберіңіз, содан кейін /done басыңыз.")
+        return
+
+    # Бірінші файлды негізгі етіп аламыз
+    if files:
+        first = files[0]
+        file_id = first["file_id"]
+        file_type = first["file_type"]
+        # Қосымша файлдар болса description-ға file_id жазамыз (кейін кеңейтуге болады)
+        extra_ids = [f["file_id"] for f in files[1:]]
+        if extra_ids:
+            description = (description + "\n" + "\n".join(extra_ids)).strip()
+    else:
+        file_id = None
         file_type = "text"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_type = "photo"
-        content = message.caption or ""
-    elif message.document:
-        file_id = message.document.file_id
-        file_type = "document"
-        content = message.caption or ""
-    elif message.voice:
-        file_id = message.voice.file_id
-        file_type = "voice"
-        content = ""
-    elif message.audio:
-        file_id = message.audio.file_id
-        file_type = "audio"
-        content = message.caption or ""
-    elif message.video:
-        file_id = message.video.file_id
-        file_type = "video"
-        content = message.caption or ""
 
-    task_id = await add_task(
+    await add_task(
         teacher_id=data["teacher_id"],
         skill=data["skill"],
         title=data["title"],
-        description=content,
+        description=description,
         file_id=file_id,
         file_type=file_type
     )
 
     await state.clear()
+    files_count = len(files)
     await message.answer(
         f"✅ Тапсырма сәтті қосылды!\n\n"
         f"📚 Дағды: <b>{SKILLS[data['skill']]}</b>\n"
-        f"📝 Атауы: <b>{data['title']}</b>",
+        f"📝 Атауы: <b>{data['title']}</b>\n"
+        f"📎 Файлдар: {files_count}",
         parse_mode="HTML",
         reply_markup=teacher_main_keyboard()
     )
+
+@router.message(AddTask.waiting_content)
+async def add_task_collect(message: Message, state: FSMContext):
+    """Файлдарды жинайды — /done дейін"""
+    data = await state.get_data()
+    files = data.get("collected_files", [])
+    description = data.get("description", "")
+
+    if message.text and message.text not in ("/done",):
+        description = (description + "\n" + message.text).strip()
+        await state.update_data(description=description)
+        await message.answer("📝 Мәтін қабылданды. Жалғастырыңыз немесе /done")
+
+    elif message.photo:
+        files.append({"file_id": message.photo[-1].file_id, "file_type": "photo"})
+        if message.caption:
+            description = (description + "\n" + message.caption).strip()
+        await state.update_data(collected_files=files, description=description)
+        await message.answer(f"🖼 Фото қабылданды ({len(files)} файл). Жалғастырыңыз немесе /done")
+
+    elif message.audio:
+        files.append({"file_id": message.audio.file_id, "file_type": "audio"})
+        if message.caption:
+            description = (description + "\n" + message.caption).strip()
+        await state.update_data(collected_files=files, description=description)
+        await message.answer(f"🎵 Аудио қабылданды ({len(files)} файл). Жалғастырыңыз немесе /done")
+
+    elif message.voice:
+        files.append({"file_id": message.voice.file_id, "file_type": "voice"})
+        await state.update_data(collected_files=files)
+        await message.answer(f"🎤 Дауыс қабылданды ({len(files)} файл). Жалғастырыңыз немесе /done")
+
+    elif message.document:
+        files.append({"file_id": message.document.file_id, "file_type": "document"})
+        if message.caption:
+            description = (description + "\n" + message.caption).strip()
+        await state.update_data(collected_files=files, description=description)
+        await message.answer(f"📄 Файл қабылданды ({len(files)} файл). Жалғастырыңыз немесе /done")
+
+    elif message.video:
+        files.append({"file_id": message.video.file_id, "file_type": "video"})
+        await state.update_data(collected_files=files)
+        await message.answer(f"🎬 Видео қабылданды ({len(files)} файл). Жалғастырыңыз немесе /done")
 
 # ===== ТАПСЫРМАЛАР ТІЗІМІ =====
 
@@ -156,36 +190,26 @@ async def my_tasks(message: Message):
     teacher = await get_teacher_by_tg(message.from_user.id)
     if not teacher:
         return
-
     tasks = await get_all_tasks_by_teacher(teacher[0])
     if not tasks:
         await message.answer("📭 Тапсырмалар жоқ. ➕ Тапсырма қосу арқылы жасаңыз.")
         return
-
     text = "📋 <b>Сіздің тапсырмаларыңыз:</b>\n\n"
     for task in tasks:
         skill_label = SKILLS.get(task[2], task[2])
-        text += f"• {skill_label} — <b>{task[4]}</b> (ID: {task[0]})\n"
-
+        text += f"• {skill_label} — <b>{task[3]}</b> (ID: {task[0]})\n"
     text += "\n<i>Жою үшін тапсырмаға басыңыз:</i>"
     await message.answer(text, parse_mode="HTML", reply_markup=task_list_keyboard(tasks))
 
 @router.callback_query(F.data.startswith("delete_task:"))
 async def confirm_delete_task(callback: CallbackQuery):
     task_id = int(callback.data.split(":")[1])
-    teacher = await get_teacher_by_tg(callback.from_user.id)
-
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🗑 Жою", callback_data=f"confirm_delete:{task_id}"),
-            InlineKeyboardButton(text="❌ Болдырмау", callback_data="cancel_delete"),
-        ]
-    ])
-    await callback.message.edit_text(
-        f"⚠️ Бұл тапсырманы жоясыз ба? (ID: {task_id})",
-        reply_markup=kb
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Жою", callback_data=f"confirm_delete:{task_id}"),
+        InlineKeyboardButton(text="❌ Болдырмау", callback_data="cancel_delete"),
+    ]])
+    await callback.message.edit_text(f"⚠️ Бұл тапсырманы жоясыз ба? (ID: {task_id})", reply_markup=kb)
 
 @router.callback_query(F.data.startswith("confirm_delete:"))
 async def do_delete_task(callback: CallbackQuery):
@@ -205,12 +229,10 @@ async def pending_submissions(message: Message):
     teacher = await get_teacher_by_tg(message.from_user.id)
     if not teacher:
         return
-
     subs = await get_pending_submissions(teacher[0])
     if not subs:
         await message.answer("📭 Тексерілмеген жұмыстар жоқ.")
         return
-
     await message.answer(
         f"📥 <b>Тексерілмеген жұмыстар: {len(subs)}</b>\n\nТаңдаңыз:",
         parse_mode="HTML",
@@ -221,12 +243,10 @@ async def pending_submissions(message: Message):
 async def view_submission(callback: CallbackQuery, bot: Bot, state: FSMContext):
     sub_id = int(callback.data.split(":")[1])
     sub = await get_submission_by_id(sub_id)
-
     if not sub:
         await callback.answer("Жұмыс табылмады.")
         return
 
-    # sub columns: id, student_id, task_id, content, file_id, file_type, submitted_at, grade, feedback, graded_at, full_name, tg_id, title, skill
     student_name = sub[10]
     task_title = sub[12]
     skill = sub[13]
@@ -239,69 +259,52 @@ async def view_submission(callback: CallbackQuery, bot: Bot, state: FSMContext):
         f"📚 <b>Дағды:</b> {SKILLS.get(skill, skill)}\n"
         f"📝 <b>Тапсырма:</b> {task_title}\n\n"
     )
-
     if content:
         text += f"💬 <b>Жауап:</b>\n{content}\n\n"
 
     await state.update_data(grading_submission_id=sub_id, student_tg_id=sub[11])
     await state.set_state(GradeTask.waiting_grade)
 
-    if file_id and file_type == "photo":
-        await bot.send_photo(callback.from_user.id, file_id, caption=text, parse_mode="HTML",
-                             reply_markup=grade_keyboard(sub_id))
-    elif file_id and file_type == "voice":
-        await bot.send_voice(callback.from_user.id, file_id, caption=text, parse_mode="HTML",
-                             reply_markup=grade_keyboard(sub_id))
-    elif file_id and file_type == "document":
-        await bot.send_document(callback.from_user.id, file_id, caption=text, parse_mode="HTML",
-                                reply_markup=grade_keyboard(sub_id))
-    else:
-        await callback.message.edit_text(
-            text + "Баға қойыңыз:",
-            parse_mode="HTML",
-            reply_markup=grade_keyboard(sub_id)
-        )
+    try:
+        if file_id and file_type == "photo":
+            await bot.send_photo(callback.from_user.id, file_id, caption=text, parse_mode="HTML", reply_markup=grade_keyboard(sub_id))
+        elif file_id and file_type in ("voice", "audio"):
+            await bot.send_audio(callback.from_user.id, file_id, caption=text, parse_mode="HTML", reply_markup=grade_keyboard(sub_id))
+        elif file_id and file_type == "document":
+            await bot.send_document(callback.from_user.id, file_id, caption=text, parse_mode="HTML", reply_markup=grade_keyboard(sub_id))
+        else:
+            await callback.message.edit_text(text + "Баға қойыңыз:", parse_mode="HTML", reply_markup=grade_keyboard(sub_id))
+    except Exception:
+        await callback.message.edit_text(text + "Баға қойыңыз:", parse_mode="HTML", reply_markup=grade_keyboard(sub_id))
 
 @router.callback_query(F.data.startswith("grade:"), GradeTask.waiting_grade)
 async def set_grade(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split(":")
     sub_id = int(parts[1])
     grade = parts[2]
-
     await state.update_data(grade=grade, sub_id=sub_id)
     await state.set_state(GradeTask.waiting_feedback)
     await callback.message.answer(
-        f"✅ Баға: <b>{grade}</b>\n\n💬 Пікір жазыңыз (түсіндірме, кеңес):",
+        f"✅ Баға: <b>{grade}</b>\n\n💬 Пікір жазыңыз:",
         parse_mode="HTML"
     )
 
 @router.message(GradeTask.waiting_feedback)
 async def set_feedback(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    sub_id = data["sub_id"]
-    grade = data["grade"]
-    feedback = message.text
-    student_tg_id = data["student_tg_id"]
-
-    await grade_submission(sub_id, grade, feedback)
-
-    # Оқушыға хабарлау
+    await grade_submission(data["sub_id"], data["grade"], message.text)
     try:
         await bot.send_message(
-            student_tg_id,
+            data["student_tg_id"],
             f"📬 <b>Мұғалімнен кері байланыс!</b>\n\n"
-            f"⭐ <b>Баға:</b> {grade}\n"
-            f"💬 <b>Пікір:</b> {feedback}",
+            f"⭐ <b>Баға:</b> {data['grade']}\n"
+            f"💬 <b>Пікір:</b> {message.text}",
             parse_mode="HTML"
         )
     except Exception:
         pass
-
     await state.clear()
-    await message.answer(
-        "✅ Баға қойылды және оқушыға жіберілді!",
-        reply_markup=teacher_main_keyboard()
-    )
+    await message.answer("✅ Баға қойылды және оқушыға жіберілді!", reply_markup=teacher_main_keyboard())
 
 # ===== ОҚУШЫЛАР ТІЗІМІ =====
 
@@ -310,14 +313,11 @@ async def my_students(message: Message):
     teacher = await get_teacher_by_tg(message.from_user.id)
     if not teacher:
         return
-
     students = await get_students_by_teacher(teacher[0])
     if not students:
         await message.answer("📭 Оқушылар жоқ.")
         return
-
     text = f"👥 <b>Менің оқушыларым ({len(students)}):</b>\n\n"
     for i, (s_id, name, tg_id) in enumerate(students, 1):
         text += f"{i}. {name}\n"
-
     await message.answer(text, parse_mode="HTML")
