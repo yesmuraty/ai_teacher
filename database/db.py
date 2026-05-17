@@ -149,6 +149,7 @@ async def get_tasks_for_student(teacher_id: int, skill: str, topic_keyword: str 
 
 async def get_task_by_id(task_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cur:
             return await cur.fetchone()
 
