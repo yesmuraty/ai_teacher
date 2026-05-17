@@ -173,14 +173,50 @@ async def view_task(callback: CallbackQuery, bot: Bot):
 
     if file_id:
         if extra_file_id:
-            await send_file(file_id, file_type, caption, markup=None)
-            await send_file(extra_file_id, extra_file_type, "", markup=submit_task_keyboard(task_id))
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🖼 Суретті көру", callback_data=f"show_extra:{task_id}")],
+                [InlineKeyboardButton(text="📤 Жұмысымды тапсыру", callback_data=f"submit_task:{task_id}")],
+                [InlineKeyboardButton(text="🔙 Артқа", callback_data="back_to_main")],
+            ])
+            await send_file(file_id, file_type, caption, markup=kb)
         else:
             await send_file(file_id, file_type, caption, markup=submit_task_keyboard(task_id))
         await callback.answer()
     else:
         await callback.message.edit_text(caption, parse_mode="HTML",
             reply_markup=submit_task_keyboard(task_id))
+
+# ===== ҚОСЫМША ФАЙЛДЫ КӨРСЕТУ =====
+
+@router.callback_query(F.data.startswith("show_extra:"))
+async def show_extra_file(callback: CallbackQuery, bot: Bot):
+    task_id = int(callback.data.split(":")[1])
+    task = await get_task_by_id(task_id)
+    if not task:
+        await callback.answer("Файл табылмады.")
+        return
+
+    extra_file_id   = task["extra_file_id"]
+    extra_file_type = task["extra_file_type"]
+
+    if not extra_file_id:
+        await callback.answer("Қосымша файл жоқ.")
+        return
+
+    if extra_file_type == "photo":
+        await bot.send_photo(callback.from_user.id, extra_file_id,
+            reply_markup=submit_task_keyboard(task_id))
+    elif extra_file_type in ("audio", "voice"):
+        await bot.send_audio(callback.from_user.id, extra_file_id,
+            reply_markup=submit_task_keyboard(task_id))
+    elif extra_file_type == "document":
+        await bot.send_document(callback.from_user.id, extra_file_id,
+            reply_markup=submit_task_keyboard(task_id))
+    else:
+        await bot.send_message(callback.from_user.id, extra_file_id,
+            reply_markup=submit_task_keyboard(task_id))
+    await callback.answer()
 
 # ===== ЖҰМЫС ТАПСЫРУ =====
 
