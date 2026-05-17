@@ -32,6 +32,8 @@ async def init_db():
                 description TEXT,
                 file_id TEXT,
                 file_type TEXT,
+                extra_file_id TEXT,
+                extra_file_type TEXT,
                 is_shared INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -39,6 +41,14 @@ async def init_db():
         # is_shared баған жоқ болса қосу (ескі база үшін)
         try:
             await db.execute("ALTER TABLE tasks ADD COLUMN is_shared INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE tasks ADD COLUMN extra_file_id TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE tasks ADD COLUMN extra_file_type TEXT")
             await db.commit()
         except Exception:
             pass
@@ -105,11 +115,12 @@ async def get_students_by_teacher(teacher_id: int):
 # ===== TASKS =====
 
 async def add_task(teacher_id: int, skill: str, title: str, description: str,
-                   file_id: str, file_type: str, is_shared: int = 0):
+                   file_id: str, file_type: str, is_shared: int = 0,
+                   extra_file_id: str = None, extra_file_type: str = None):
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO tasks (teacher_id, skill, title, description, file_id, file_type, is_shared) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (teacher_id, skill, title, description, file_id, file_type, is_shared)
+            "INSERT INTO tasks (teacher_id, skill, title, description, file_id, file_type, extra_file_id, extra_file_type, is_shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (teacher_id, skill, title, description, file_id, file_type, extra_file_id, extra_file_type, is_shared)
         )
         await db.commit()
         return cur.lastrowid
