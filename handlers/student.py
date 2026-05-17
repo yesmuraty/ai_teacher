@@ -148,29 +148,31 @@ async def view_task(callback: CallbackQuery, bot: Bot):
         await callback.answer("Тапсырма табылмады.")
         return
 
-    # id[0], teacher_id[1], skill[2], title[3], description[4], file_id[5], file_type[6]
+    # id[0], teacher_id[1], skill[2], title[3], description[4], file_id[5], file_type[6], extra_file_id[7], extra_file_type[8]
     skill_label = SKILLS.get(task[2], task[2])
     caption = f"📚 <b>{skill_label}</b>\n📝 <b>{task[3]}</b>\n\n{task[4] or ''}"
 
-    if task[5] and task[6] == "photo":
-        await bot.send_photo(callback.from_user.id, task[5],
-            caption=caption, parse_mode="HTML",
-            reply_markup=submit_task_keyboard(task[0]))
-        await callback.answer()
-    elif task[5] and task[6] in ("audio", "voice"):
-        await bot.send_audio(callback.from_user.id, task[5],
-            caption=caption, parse_mode="HTML",
-            reply_markup=submit_task_keyboard(task[0]))
-        await callback.answer()
-    elif task[5] and task[6] == "document":
-        await bot.send_document(callback.from_user.id, task[5],
-            caption=caption, parse_mode="HTML",
-            reply_markup=submit_task_keyboard(task[0]))
-        await callback.answer()
-    elif task[5] and task[6] == "video":
-        await bot.send_video(callback.from_user.id, task[5],
-            caption=caption, parse_mode="HTML",
-            reply_markup=submit_task_keyboard(task[0]))
+    # Бірінші файлды жіберу хелпері
+    async def send_file(file_id, file_type, cap, markup=None):
+        if file_type == "photo":
+            await bot.send_photo(callback.from_user.id, file_id, caption=cap, parse_mode="HTML", reply_markup=markup)
+        elif file_type in ("audio", "voice"):
+            await bot.send_audio(callback.from_user.id, file_id, caption=cap, parse_mode="HTML", reply_markup=markup)
+        elif file_type == "document":
+            await bot.send_document(callback.from_user.id, file_id, caption=cap, parse_mode="HTML", reply_markup=markup)
+        elif file_type == "video":
+            await bot.send_video(callback.from_user.id, file_id, caption=cap, parse_mode="HTML", reply_markup=markup)
+
+    extra_file_id = task[7] if len(task) > 7 else None
+    extra_file_type = task[8] if len(task) > 8 else None
+
+    if task[5]:
+        # Екінші файл бар болса — caption-ды бірінші файлда, батырманы соңғыда
+        if extra_file_id:
+            await send_file(task[5], task[6], caption, markup=None)
+            await send_file(extra_file_id, extra_file_type, "", markup=submit_task_keyboard(task[0]))
+        else:
+            await send_file(task[5], task[6], caption, markup=submit_task_keyboard(task[0]))
         await callback.answer()
     else:
         await callback.message.edit_text(caption, parse_mode="HTML",
