@@ -23,11 +23,11 @@ async def cmd_start(message: Message):
 
     student = await get_student_by_tg(user_id)
     if student:
-        from keyboards.kb import skills_keyboard
+        from keyboards.kb import topics_keyboard
         await message.answer(
-            f"👨‍🎓 Қош келдіңіз, <b>{student[2]}</b>!\n\nДағдыны таңдаңыз:",
+            f"👨‍🎓 Қош келдіңіз, <b>{student[2]}</b>!\n\nТақырыпты таңдаңыз:",
             parse_mode="HTML",
-            reply_markup=skills_keyboard(student[3])
+            reply_markup=topics_keyboard(student[3])
         )
         return
 
