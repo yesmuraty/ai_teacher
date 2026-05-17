@@ -121,13 +121,15 @@ async def add_task_done(message: Message, state: FSMContext):
         await message.answer("⚠️ Ештеңе жіберілмеді. Мазмұн жіберіп, /done басыңыз.")
         return
 
+    extra_file_id = None
+    extra_file_type = None
+
     if files:
-        first = files[0]
-        file_id = first["file_id"]
-        file_type = first["file_type"]
-        extra = [f["file_id"] for f in files[1:]]
-        if extra:
-            description = (description + "\n" + "\n".join(extra)).strip()
+        file_id   = files[0]["file_id"]
+        file_type = files[0]["file_type"]
+        if len(files) > 1:
+            extra_file_id   = files[1]["file_id"]
+            extra_file_type = files[1]["file_type"]
     else:
         file_id = None
         file_type = "text"
@@ -141,7 +143,9 @@ async def add_task_done(message: Message, state: FSMContext):
         description=description,
         file_id=file_id,
         file_type=file_type,
-        is_shared=is_shared
+        is_shared=is_shared,
+        extra_file_id=extra_file_id,
+        extra_file_type=extra_file_type
     )
 
     await state.clear()
